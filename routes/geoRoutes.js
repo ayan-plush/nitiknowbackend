@@ -9,6 +9,4 @@ router.post('/image', geoController.sabhaMemberImageAdd);
 router.post('/add', geoController.sabhaMemberDataAdd);
 
 
-
-
 module.exports = router

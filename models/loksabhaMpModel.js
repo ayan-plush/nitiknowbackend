@@ -59,7 +59,7 @@ const loksabhaMPSchema = new Schema({
         type: String,
         required: true,
     },
-    image : {
+    imageUrl : {
         type: String
     },
     politicalParty : {

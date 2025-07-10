@@ -11,6 +11,9 @@ const sharp = require("sharp");
 const fs = require("fs-extra");
 const path = require("path");
 const FormData = require("form-data");
+// const HttpsProxyAgent = require("https-proxy-agent");
+  const { getJson } = require("serpapi");
+
 
 
 
@@ -156,18 +159,81 @@ cloudinary.config({
     secure: true,
 });
 
+
 const fetchImageFromSerpAPI = async (query) => {
+    const qs = `${query} prs`
     console.log(`🔎 [fetchImageFromSerpAPI] Searching image for: "${query}"`);
-    const serpUrl = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&tbm=isch&api_key=${process.env.SERP_API_KEY}`;
+    const serpUrl = `https://serpapi.com/search.json?q=${encodeURIComponent(qs)}&tbm=isch&api_key=${process.env.SERP_API_KEY}`;
     const res = await axios.get(serpUrl);
     const img = res.data.images_results?.[0]?.original || null;
     console.log(`📸 [fetchImageFromSerpAPI] Image URL found: ${img}`);
     return img;
 };
+// const fetchImageFromSerpAPI = async (query) => {
+
+//   console.log(`🔎 [fetchImageFromSerpAPI] Searching image for: "${query}"`);
+//   const serpUrl = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&engine=google_images&ijn=0&api_key=${process.env.SERP_API_KEY}`;
+//   const res = await axios.get(serpUrl);
+
+
+//     getJson({
+//     q: `${query}`,
+//     engine: "google_images",
+//     api_key: process.env.SERP_API_KEY
+//     }, (json) => {
+//     console.log(json["related_searches"],'okkk');
+//     });
+
+
+//   const images = res.data.images_results || [];
+
+//   for (const result of images) {
+//     const imgUrl = result.thumbnail;
+//     if (!imgUrl) continue;
+
+//     try {
+//       console.log(`⬇️ [downloadImage] Trying image: ${imgUrl}`);
+//       const response = await axios.get(imgUrl, {
+//         responseType: 'arraybuffer',
+//         headers: {
+//           'User-Agent': 'Mozilla/5.0',
+//           "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" // Helps avoid bot blocks
+//         }
+//       });
+
+//       const buffer = Buffer.from(response.data);
+//       const type = await fileType.fromBuffer(buffer);
+
+//       if (type && ['image/jpeg', 'image/png', 'image/webp'].includes(type.mime) && buffer.length > 5000) {
+//         console.log(`✅ [fetchImageFromSerpAPI] Valid image found: ${imgUrl}`);
+//         return imgUrl;
+//       } else {
+//         console.warn(`❌ Skipping invalid image: ${type?.mime}, ${buffer.length} bytes`);
+//       }
+//     } catch (err) {
+//       console.warn(`⚠️ Failed to fetch image: ${imgUrl}`, err.message);
+//     }
+//   }
+
+//   console.error(`❌ No valid image found for: ${query}`);
+//   return null;
+// };
+
 
 const downloadImage = async (url) => {
     console.log(`⬇️ [downloadImage] Downloading image from: ${url}`);
-    const res = await axios.get(url, { responseType: "arraybuffer" });
+    const res = await axios.get(url, { responseType: "arraybuffer" ,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', // Spoof browser
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.google.com/', // Makes it look like image search
+            'DNT': '1', // Do Not Track
+            'Upgrade-Insecure-Requests': '1',
+        },
+        timeout: 8000,
+        maxRedirects: 5,
+    });
     const buffer = Buffer.from(res.data, "binary");
     console.log(`✅ [downloadImage] Image downloaded (${buffer.length} bytes)`);
     return buffer;
@@ -192,6 +258,35 @@ const removeBgPhotoroom = async (buffer) => {
             console.log(`🧼 [removeBgPhotoroom] Background removed (${processed.length} bytes)`);
             return processed;
         };
+
+
+const removeBg = async (buffer) => {
+            const form = new FormData();
+
+            form.append("image_file", buffer, {
+                filename: "input.jpg",
+                contentType: "image/jpeg",
+            });
+
+            // Optional: Use size=preview to avoid credit usage (low-res image)
+            form.append("size", "preview");
+
+            try {
+                const response = await axios.post("https://api.remove.bg/v1.0/removebg", form, {
+                headers: {
+                    ...form.getHeaders(),
+                    "X-Api-Key": process.env.REMOVE_BG_API_KEY, // 🔑 Put your API key here
+                },
+                responseType: "arraybuffer", // So we get binary data
+                });
+
+                return Buffer.from(response.data);
+            } catch (err) {
+                const msg = err.response?.data?.errors || err.message;
+                console.error("❌ [Remove.bg] Error:", msg);
+                throw err;
+            }
+        };
 const removeBgSlazzer = async (buffer) => {
             console.log(`🎯 [slazzer] Removing background...`);
             // const settings = {
@@ -201,21 +296,29 @@ const removeBgSlazzer = async (buffer) => {
             // outputImagePath: "output.png"
             // };
             const form = new FormData();
-            form.append("image_file", buffer, {
+            form.append("source_image_file", buffer, {
                 filename: "input.jpg",
                 contentType: "image/jpeg"
             });
+            form.append("preview", "true");
+
 
             const res = await axios.post("https://api.slazzer.com/v2.0/remove_image_background",form, {
                 headers: {
                     "API-KEY": process.env.SLAZZER_API_KEY,
+                    ...form.getHeaders(),
                 },
                 encoding: null,
+                responseType: "arraybuffer",
             });
             const processed = Buffer.from(res.data, "binary");
             console.log(`🧼 [removeBgPhotoroom] Background removed (${processed.length} bytes)`);
             return processed;
         };
+// const rembg = new Rembg({
+//   logging: true, // optional
+// });
+
 
 
 // const settings = {
@@ -251,6 +354,63 @@ const removeBgSlazzer = async (buffer) => {
             return output;
         };
 
+        const fetchImageFromSerpAPIAndProcess = async (query) => {
+            console.log(`🔎 [fetchImageFromSerpAPI] Searching image for: "${query}"`);
+            const serpUrl = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&tbm=isch&api_key=${process.env.SERP_API_KEY}`;
+
+            let res;
+            try {
+                res = await axios.get(serpUrl);
+            } catch (err) {
+                console.error(`❌ Failed to fetch SerpAPI results: ${err.message}`);
+                return null;
+            }
+
+            const images = res.data.images_results || [];
+
+            for (const result of images) {
+                const imgUrl = result.original;
+                if (!imgUrl) continue;
+
+                try {
+                console.log(`⬇️ [downloadImage] Trying image: ${imgUrl}`);
+                const response = await axios.get(imgUrl, {
+                    responseType: "arraybuffer",
+                });
+
+                const buffer = Buffer.from(response.data);
+                // const type = await fileType.fromBuffer(buffer);
+
+                // if (
+                //     !type ||
+                //     !["image/jpeg", "image/png", "image/webp"].includes(type.mime) ||
+                //     buffer.length < 5000
+                // ) {
+                //     console.warn(`❌ Skipping: ${type?.mime || "unknown"}, ${buffer.length} bytes`);
+                //     continue;
+                // }
+
+                console.log(`✅ [validImage] Image passed validation, now processing...`);
+
+                const processed = await sharp(buffer)
+                    .grayscale()
+                    .linear(1.3, -30)
+                    .toFormat("png")
+                    .toBuffer();
+
+                console.log(`🖼️ [processImage] Processed image (${processed.length} bytes)`);
+                return processed;
+
+                } catch (err) {
+                console.warn(`⚠️ Failed to process image: ${imgUrl}`, err.message);
+                }
+            }
+
+            console.error(`❌ No valid processable image found for: ${query}`);
+            return null;
+            };
+
+
         const uploadToCloudinary = async (name, buffer) => {
             const tempPath = path.join(__dirname, `../temp-${Date.now()}.png`);
             console.log(`📁 [uploadToCloudinary] Saving temp file: ${tempPath}`);
@@ -269,8 +429,9 @@ const removeBgSlazzer = async (buffer) => {
         };
 
         try {
-            for (const mp of [mpLokSabhaData[0]]) {
-                console.log(`➡️ Processing MP: ${mp.mp_name}`);
+            for (const mp of mpLokSabhaData) {
+                try{
+                                    console.log(`➡️ Processing MP: ${mp.mp_name}`);
                 const existing = await loksabhaMpModel.findOne({ name: mp.mp_name });
                 if (!existing) {
                     console.warn(`⚠️ MP not found in DB: ${mp.mp_name}`);
@@ -282,6 +443,8 @@ const removeBgSlazzer = async (buffer) => {
                     continue;
                 }
 
+                // const final2 = fetchImageFromSerpAPIAndProcess(mp.mp_name);
+
                 const imgUrl = await fetchImageFromSerpAPI(mp.mp_name);
                 if (!imgUrl) {
                     console.warn(`❌ Image not found for ${mp.mp_name}`);
@@ -289,14 +452,21 @@ const removeBgSlazzer = async (buffer) => {
                 }
 
                 const original = await downloadImage(imgUrl);
-                const noBg = await removeBgSlazzer(original);
-                const final = await processImage(noBg);
+                // // const noBg = await removeBgLocally(original);
+                const final = await processImage(original);
                 const uploadedUrl = await uploadToCloudinary(mp.mp_name, final);
-
-                existing.imageUrl = uploadedUrl;
-                await existing.save();
+                const noBgUrl = uploadedUrl.replace('/upload/', '/upload/e_background_removal/');
+                existing.imageUrl = noBgUrl;
+                console.log(noBgUrl);
+                await existing.save(noBgUrl);
 
                 console.log(`🎉 Uploaded image for: ${mp.mp_name}`);
+
+                }
+                
+                catch(error){
+                    console.error(`💥 Error: ${error.message}`);
+                }
             }
 
             responseReturn(res, 200, { message: "Images processed successfully" });
