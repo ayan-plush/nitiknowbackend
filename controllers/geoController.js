@@ -586,7 +586,7 @@ const removeBgSlazzer = async (buffer) => {
                 // })
                 // res.json({ results });
             } catch (err) {
-                res.status(500).json({ error: err.message });
+               return res.status(500).json({ error: err.message });
             }
             await lokmp.save();
         }
@@ -596,7 +596,7 @@ const removeBgSlazzer = async (buffer) => {
             // res.json({ articles });
         } catch (error) {
             console.error("Error fetching articles:", error);
-            res.status(500).json({ error: "Failed to fetch articles" });
+            responseReturn(res,500,{error: "Failed to fetch articles" })
         }
 
     }
