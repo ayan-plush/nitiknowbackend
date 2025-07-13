@@ -13,7 +13,7 @@ require('dotenv').config()
 
 
 app.use(cors({
-    origin : ['http://localhost:5173'] , //[`${CORSBASE}`],  idk if this is good tho process.env.BASE_URL 
+    origin : ['https://nitiknow.onrender.com'] , //http://localhost:5173,  idk if this is good tho process.env.BASE_URL 
     methods : "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials : true
 }))
