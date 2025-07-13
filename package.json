@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "server": "nodemon server.js",
+    "install": "ORT_USE_CUDA=0 npm install",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,7 +16,6 @@
   },
   "dependencies": {
     "@turf/turf": "^7.2.0",
-    "@xixiyahaha/rembg-node": "^2.2.0",
     "axios": "^1.10.0",
     "body-parser": "^2.2.0",
     "cheerio": "^1.1.0",
