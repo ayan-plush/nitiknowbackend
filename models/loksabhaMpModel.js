@@ -62,6 +62,9 @@ const loksabhaMPSchema = new Schema({
     imageUrl : {
         type: String
     },
+    fallbackUrl : {
+        type: String
+    },
     politicalParty : {
         type: String,
         required: true,
@@ -69,6 +72,10 @@ const loksabhaMPSchema = new Schema({
     gender : {
         type: String,
         required: true,
+    },
+    lastScrapedAt: { 
+        type: Date,
+        default: null
     },
     education : {
         type: Object,

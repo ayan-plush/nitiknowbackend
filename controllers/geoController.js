@@ -10,9 +10,11 @@ const axios = require("axios");
 const sharp = require("sharp");
 const fs = require("fs-extra");
 const path = require("path");
+const GoogleSearch = require('../utils/googleSearch.js');
 const FormData = require("form-data");
 // const HttpsProxyAgent = require("https-proxy-agent");
   const { getJson } = require("serpapi");
+const loksabhaArticlesModel = require("../models/loksabhaArticlesModel");
 
 
 
@@ -428,10 +430,12 @@ const removeBgSlazzer = async (buffer) => {
             return result.secure_url;
         };
 
+        console.log(mpLokSabhaData.length);
+
         try {
             for (const mp of mpLokSabhaData) {
                 try{
-                                    console.log(`➡️ Processing MP: ${mp.mp_name}`);
+                console.log(`➡️ Processing MP: ${mp.mp_name}`);
                 const existing = await loksabhaMpModel.findOne({ name: mp.mp_name });
                 if (!existing) {
                     console.warn(`⚠️ MP not found in DB: ${mp.mp_name}`);
@@ -451,8 +455,9 @@ const removeBgSlazzer = async (buffer) => {
                     continue;
                 }
 
-                const original = await downloadImage(imgUrl);
                 // // const noBg = await removeBgLocally(original);
+                
+                const original = await downloadImage(imgUrl);
                 const final = await processImage(original);
                 const uploadedUrl = await uploadToCloudinary(mp.mp_name, final);
                 const noBgUrl = uploadedUrl.replace('/upload/', '/upload/e_background_removal/');
@@ -476,6 +481,128 @@ const removeBgSlazzer = async (buffer) => {
         }
 
     }
+    getNewsData = async (req,res) => {
+        const {minister} = req.body;
+        const headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36"
+        };
+
+        try {
+            const encoded = encodeURIComponent(minister);
+            const url = `https://news.google.com/search?q=${encoded}&hl=en-IN&gl=IN&ceid=IN:en`;
+            const response = await axios.get(url, { headers });
+            const html = response.data;
+            console.log(html);
+            const regex = /data:(\[.*?\]), sideChannel/s;
+            const match = html.match(regex);
+            if (!match || !match[0]) {
+                throw new Error('No valid JSON data found');
+            }
+            let resp = [];
+            const data = JSON.parse(match[1]);
+            for (const section of data[1][3][1]) {
+                if (Array.isArray(section[0])) {
+                    for (const item of section[0]) {
+                        const utcTime = new Date(item[4][0] * 1000).toISOString();
+                        resp.push({
+                            title: item[2],
+                            source: {
+                                name: item[10][2],
+                                icon: item[10][22]?.[0] || null, // Safe access to nested properties
+                                authors: item[item.length - 1]?.[0] || []
+                            },
+                            link: item[38],
+                            thumbnail: item[8]?.[0]?.[13] || null,
+                            thumbnail_small: item[8]?.[0]?.[0] || null,
+                            date: utcTime
+                        });
+                        break;
+                    }
+                }
+            }
+            console.log(resp);
+            responseReturn(res,200, {data: resp});
+        } catch (error) {
+            console.error('Error:', error.message);
+            responseReturn(res,400, {error: error.message});
+        }
+    }
+
+    getNewsDataModule = async (req,res) => {
+        const {query} = req.body;
+        if (!query) {
+            return res.status(400).json({ error: 'Missing query' });
+        }
+
+        try {
+            const results = await GoogleSearch.search(query, {
+                numResults: 15,
+                region: 'IN',
+                unique: true
+            });
+            res.json({ results });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+
+    }
+
+    scrapeMinisterNews = async (req,res) => {
+        const {minister, mpId} = req.body;
+        console.log(minister,mpId)
+        const query = minister;
+        const now = new Date();
+        const twoHourAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+        if (!minister||!mpId) {
+            return res.status(400).json({ error: 'Missing query' });
+        }
+
+        let lokmp = await loksabhaMpModel.findById(mpId)
+
+        if(!lokmp.lastScrapedAt || lokmp.lastScrapedAt < twoHourAgo){
+            try {
+                const results = await GoogleSearch.search(query, {
+                    numResults: 15,
+                    region: 'IN',
+                    unique: true
+                });
+                for(const article of results){
+                    const articleExists = await loksabhaArticlesModel.findOne({ url: article.url });
+                    if(!articleExists){
+                        await loksabhaArticlesModel.create({
+                            politician: lokmp._id,
+                            title: article.title,
+                            url: article.url,
+                            description: article.description,
+                            img: article.img,
+                            text: article.articleText
+                        })
+                    }
+                }
+                lokmp.lastScrapedAt = now;
+
+                // results.map(async (article) => {
+                //     const exists = await loksabhaArticlesModel.findOne({ url: article.url });
+                // })
+                // res.json({ results });
+            } catch (err) {
+                res.status(500).json({ error: err.message });
+            }
+            await lokmp.save();
+        }
+        try {
+            const articles = await loksabhaArticlesModel.find({ politician: mpId }).sort({ createdAt: -1 }); 
+            responseReturn(res,200,{data: articles})
+            // res.json({ articles });
+        } catch (error) {
+            console.error("Error fetching articles:", error);
+            res.status(500).json({ error: "Failed to fetch articles" });
+        }
+
+    }
+    
+
+
 }
 
 module.exports = new geoControllers()
