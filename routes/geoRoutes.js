@@ -9,6 +9,15 @@ router.get('/news', geoController.getNewsDataModule);
 router.post('/articles', geoController.scrapeMinisterNews);
 router.post('/image', geoController.sabhaMemberImageAdd);
 router.post('/add', geoController.sabhaMemberDataAdd);
+router.post('/prs', geoController.fetchPRSData);
+router.post('/myneta', geoController.fetchMyNetaData);
+router.post('/scrapeData', geoController.scrapeMinisterData);
+router.post('/massDataScrape', geoController.scrapeAllMinisterData);
+
+
+
+
+
 
 
 module.exports = router

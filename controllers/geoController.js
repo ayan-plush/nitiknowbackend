@@ -15,6 +15,7 @@ const FormData = require("form-data");
 // const HttpsProxyAgent = require("https-proxy-agent");
   const { getJson } = require("serpapi");
 const loksabhaArticlesModel = require("../models/loksabhaArticlesModel");
+const loksabhaMPDataModel = require("../models/loksabhaMPDataModel.js");
 
 
 
@@ -556,9 +557,15 @@ const removeBgSlazzer = async (buffer) => {
         if (!minister||!mpId) {
             return res.status(400).json({ error: 'Missing query' });
         }
-
+        try {
+            const articles = await loksabhaArticlesModel.find({ politician: mpId }).sort({ createdAt: -1 }); 
+            responseReturn(res,200,{data: articles})
+            // res.json({ articles });
+        } catch (error) {
+            console.error("Error fetching articles:", error);
+            responseReturn(res,500,{error: "Failed to fetch articles" })
+        }
         let lokmp = await loksabhaMpModel.findById(mpId)
-
         if(!lokmp.lastScrapedAt || lokmp.lastScrapedAt < twoHourAgo){
             try {
                 const results = await GoogleSearch.search(query, {
@@ -571,6 +578,7 @@ const removeBgSlazzer = async (buffer) => {
                     if(!articleExists){
                         await loksabhaArticlesModel.create({
                             politician: lokmp._id,
+                            politicianName: lokmp.name,
                             title: article.title,
                             url: article.url,
                             description: article.description,
@@ -590,16 +598,178 @@ const removeBgSlazzer = async (buffer) => {
             }
             await lokmp.save();
         }
-        try {
-            const articles = await loksabhaArticlesModel.find({ politician: mpId }).sort({ createdAt: -1 }); 
-            responseReturn(res,200,{data: articles})
-            // res.json({ articles });
-        } catch (error) {
-            console.error("Error fetching articles:", error);
-            responseReturn(res,500,{error: "Failed to fetch articles" })
+    };
+
+    fetchPRSData = async (req,res) => {
+        const {minister,constituency} = req.body
+        console.log(minister,constituency)
+
+        // const qs = `${query} prs`
+        // console.log(`🔎 [fetchImageFromSerpAPI] Searching image for: "${query}"`);
+        
+        try{
+            const endPoint = `http://0.0.0.0:8000/scrape-deb`;
+            const result = await axios.post(endPoint,{ minister, constituency });
+            console.log(result.data);
+            responseReturn(res,200,{data: result.data.results})
+        }
+        catch(error){
+            console.log(error.message)
+            responseReturn(res,400,{error: error.message})
+        }
+    };
+
+    fetchMyNetaData = async (req,res) => {
+        const {minister,constituency} = req.body
+        console.log(minister,constituency)
+
+        // const qs = `${query} prs`
+        // console.log(`🔎 [fetchImageFromSerpAPI] Searching image for: "${query}"`);
+        
+        try{
+            const endPoint = `http://0.0.0.0:8000/scrape-myneta`;
+            const result = await axios.post(endPoint,{ minister, constituency });
+            console.log(result.data);
+            responseReturn(res,200,{data: result.data})
+        }
+        catch(error){
+            console.log(error.message)
+            responseReturn(res,400,{error: error.message})
+        }
+    };
+
+
+    scrapeMinisterData = async (req,res) => {
+        const {minister, constituency} = req.body;
+        console.log(minister)
+        const query = minister;
+        const now = new Date();
+        const twoHourAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+        let mpId;
+        const MP = await loksabhaMpModel.findOne({ name: minister })
+        mpId = MP._id
+        console.log(mpId,MP)
+        if (!minister||!mpId) {
+            return res.status(400).json({ error: 'Missing query' });
+        }
+        try{
+            let lokmp = await loksabhaMPDataModel.findOne({politician: mpId});
+            if(!lokmp){
+                lokmp = await loksabhaMPDataModel.create({
+                    politician: mpId,
+                    politicianName: minister
+                })
+            }
+            const endPoint = `http://0.0.0.0:8000/scrape-myneta`;
+            const prsData = await axios.post(endPoint,{ minister, constituency });
+            console.log(prsData.data);
+            const endPointDeb = `http://0.0.0.0:8000/scrape-deb`;
+            const myNetaData = await axios.post(endPointDeb,{ minister, constituency });
+            console.log(myNetaData.data.results);
+            const updatedDoc = await loksabhaMPDataModel.findOneAndUpdate(
+                { politicianName: minister }, // Find by name
+                {
+                    $set: {
+                    debates: myNetaData.data.results,
+                    criminalCases: prsData.data.result.criminal_cases,
+                    assetsData: prsData.data.result.data_table,
+                    }
+                },
+                { new: true } // Return the updated document
+                );
+
+            responseReturn(res,200,{final: updatedDoc})
+        }
+        catch(error){
+            console.log(error);
+            responseReturn(res,200,{error: error.message})
+        }        
+
+    };
+
+    
+
+    scrapeAllMinisterData = async (req, res) => {
+    try {
+        const results = [];
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        for (const mp of mpLokSabhaData) {
+            const minister = mp.mp_name;
+            const constituency = mp.pc_name;
+
+            console.log(`Scraping data for ${minister} (${constituency})`);
+
+            const MP = await loksabhaMpModel.findOne({ name: minister });
+            if (!MP) {
+                console.warn(`MP not found in DB: ${minister}`);
+                continue;
+            }
+
+            let lokmp = await loksabhaMPDataModel.findOne({ politicianName: minister });
+            if(lokmp){
+                console.log("skipping");
+                continue;
+            }
+
+            if (!lokmp) {
+                lokmp = await loksabhaMPDataModel.create({
+                    politician: MP._id,
+                    politicianName: minister,
+                });
+            }
+
+            try {
+                const prsRes = await axios.post(`http://0.0.0.0:8000/scrape-myneta`, {
+                    minister,
+                    constituency,
+                });
+
+                // await sleep(5000);
+
+                // const debRes = await axios.post(`http://0.0.0.0:8000/scrape-deb`, {
+                //     minister,
+                //     constituency,
+                // });
+
+                const updatedDoc = await loksabhaMPDataModel.findOneAndUpdate(
+                    { politicianName: minister },
+                    {
+                        $set: {
+                            // debates: debRes?.data?.results || [],
+                            criminalCases: prsRes?.data?.result?.criminal_cases || "",
+                            assetsData: prsRes?.data?.result?.data_table || [],
+                        },
+                    },
+                    { new: true }
+                );
+
+                results.push({
+                    minister,
+                    status: "success",
+                    data: updatedDoc,
+                });
+
+            } catch (innerErr) {
+                console.error(`Failed for ${minister}:`, innerErr.message);
+                results.push({
+                    minister,
+                    status: "error",
+                    error: innerErr.message,
+                });
+            }
+            // await sleep(2000);
         }
 
+        return responseReturn(res, 200, { summary: results });
+    } catch (err) {
+        console.error("Unexpected error:", err);
+        return responseReturn(res, 500, { error: "Internal Server Error" });
     }
+};
+
+
     
 
 
